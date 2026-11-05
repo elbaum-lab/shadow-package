@@ -52,5 +52,4 @@ After loading the JSON file a form is displayed and essentially the workflow is 
 Best results are obtained with underfocus settings, for which the defocus is specified as a negative number. <br>
 
 
-images/ 
-    shadow_package_ScreenCapture.png
+shadow_package_ScreenCapture.png
