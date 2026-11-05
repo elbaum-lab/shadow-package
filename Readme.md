@@ -50,3 +50,7 @@ python shadow_montage_tiltseries_gui_2d_3d.py --gui <br>
 Most convenient is to prepare a shortcut and specify the target as the Run_Shadow_Montage_GUI.bat in your project folder.  <br>
 After loading the JSON file a form is displayed and essentially the workflow is completed by clicking the buttons: Run 3D, IMOD ali, Backprojection, 3D deconvolution. <br>
 Best results are obtained with underfocus settings, for which the defocus is specified as a negative number. <br>
+
+
+images/ 
+    shadow_package_ScreenCapture.png
