@@ -1,5 +1,5 @@
 # Shadow package
-This application is intended for automated generation of 3D tomgrams using Seifer's "volume shadow montage" applied on 4D-STEM tilt series dataset acquired by DECTRIS ARINA camera. <br>
+This application is intended for automated generation of 3D tomgrams using our "volume shadow montage" applied on 4D-STEM tilt series dataset acquired by DECTRIS ARINA camera. <br>
 The idea is to generate mrc stack from each tiltview by a cone-beam reconstruction, adjusting for oblique view, and summing the results to create unweighted tilt-series backprojection, then perform 3D deconvolution. <br> 
 The microscope acquisition parameters should be loaded from a JSON file, which is easily prepared by the Session-JSON program https://github.com/elbaum-lab/Session-JSON. <br>
 A certain naming convention is assumed in the dataset (namely, the tiltview index specified in the filenames as _S# and each file should contain up to 100000 ARINA images). <br>
