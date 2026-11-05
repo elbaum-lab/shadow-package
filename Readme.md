@@ -1,5 +1,4 @@
-
-#Shadow package
+# Shadow package
 This application is intended for automated generation of 3D tomgrams using Seifer's "volume shadow montage" applied on 4D-STEM tilt series dataset acquired by DECTRIS ARINA camera. <br>
 The idea is to generate mrc stack from each tiltview by a cone-beam reconstruction, adjusting for oblique view, and summing the results to create unweighted tilt-series backprojection, then perform 3D deconvolution. <br> 
 The microscope acquisition parameters should be loaded from a JSON file, which is easily prepared by the Session-JSON program https://github.com/elbaum-lab/Session-JSON. <br>
@@ -9,7 +8,7 @@ The volume shadow montage method is described in https://doi.org/10.1093/mam/oza
 The final step is Melnikovsky's "3dcon - 3D deconvolution" described in https://doi.org/10.1107/S205979832600999X. The code originates from https://github.com/elbaum-lab/3dcon. <br>
 IMOD is used for fiducial-based alignment https://doi.org/10.1006/jsbi.1996.0013. <br>
 
-#Installation instructions (Described for Windows, adpatable for Linux) 
+# Installation instructions (Described for Windows, adpatable for Linux) 
 
 Download the content of the shadow package code (by git or download ZIP) and extract it as the project folder, for example: <br>
 C:\Users\stem\PycharmProjects\shadow_package <br>
