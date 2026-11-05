@@ -1,0 +1,78 @@
+# Dataset-specific name and directory are supplied by Python:
+#   -root master_name
+#   -current dataset_directory
+
+# Single-axis, non-montage tilt series
+setupset.copyarg.dual=0
+setupset.copyarg.montage=0
+
+# Input stack extension, without the dot
+setupset.copyarg.stackext=mrc
+
+# Read tilt angles from master_name.rawtlt
+setupset.copyarg.userawtlt=1
+
+# Tilt axis is along image X, 90 degrees from image vertical
+setupset.copyarg.rotation=-90
+
+comparam.xcorr_pt.tiltxcorr.SizeOfPatchesXandY=
+comparam.xcorr_pt.tiltxcorr.OverlapOfPatchesXandY=0.33,0.33
+comparam.xcorr_pt.tiltxcorr.FilterRadius2=0.125
+comparam.xcorr_pt.tiltxcorr.FilterSigma2=0.03
+
+
+# Pixel size in nanometers
+# Replace with your actual unbinned pixel size
+# setupset.copyarg.pixel=1.0
+
+# Gold bead diameter in nanometers
+# Replace with your actual fiducial diameter
+setupset.copyarg.gold=15
+
+# Conventional automatic seed finding and bead tracking
+runtime.Fiducials.any.fiducialless=0
+runtime.Fiducials.any.trackingMethod=0
+runtime.Fiducials.any.seedingMethod=1
+#runtime.Fiducials.any.seedingMethod=3
+
+# Target number of automatically detected fiducials
+comparam.autofidseed.autofidseed.TargetNumberOfBeads=30
+
+# One fiducial surface
+comparam.align.tiltalign.SurfacesToAnalyze=1
+comparam.autofidseed.autofidseed.TwoSurfaces=0
+
+# Fine alignment restricted to translations
+comparam.align.tiltalign.MagOption=0
+comparam.align.tiltalign.TiltOption=0
+comparam.align.tiltalign.RotOption=0
+comparam.align.tiltalign.LocalAlignments=0
+comparam.align.tiltalign.XStretchOption=0
+comparam.align.tiltalign.SkewOption=0
+comparam.align.tiltalign.ProjectionStretch=0
+comparam.align.tiltalign.XTiltOption=0
+comparam.align.tiltalign.BeamTiltOption=0
+
+# Do not use robust fitting initially
+comparam.align.tiltalign.RobustFitting=0
+
+# Do not perform tomogram positioning
+runtime.Positioning.any.sampleType=0
+
+# Final aligned stack at original sampling
+runtime.AlignedStack.any.binByFactor=1
+runtime.AlignedStack.any.linearInterpolation=0
+
+# No CTF correction, filtering, or gold erasing
+runtime.AlignedStack.any.correctCTF=0
+runtime.AlignedStack.any.filterStack=0
+runtime.AlignedStack.any.eraseGold=0
+
+
+#runtime.Positioning.any.sampleType=2
+#runtime.Positioning.any.wholeTomogram=1
+#runtime.Positioning.any.binByFactor=6
+#runtime.Positioning.any.thickness=400
+#comparam.tomopitch.tomopitch.ExtraThickness=
+#comparam.cryoposition.cryoposition.BinningToApply=6
+#runtime.Positioning.any.centerOnGold=1
