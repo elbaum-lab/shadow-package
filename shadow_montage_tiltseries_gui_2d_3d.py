@@ -21,6 +21,7 @@ import gc
 from time import perf_counter
 import gc
 import tkinter as tk
+import threading
 from tkinter import filedialog, messagebox, ttk
 import json
 import math
@@ -949,12 +950,23 @@ def execute_in_imod(dataset_dir, master_name, number_of_cpus=8):
         )
 
     # ----------------------------------------------------------
-    # Create separate IMOD working directory
+    # Create unique IMOD working directory
     # ----------------------------------------------------------
 
-    imod_work_dir = dataset_dir / "IMOD_tmp"
-    imod_work_dir.mkdir(exist_ok=True)
+    # Extract suffix after the last underscore
+    suffix = master_name.rsplit("_", 1)[-1]
 
+    # Initial folder name
+    base_folder_name = f"IMOD_{suffix}"
+    folder_name = base_folder_name
+
+    # Add underscores until an unused folder name is found
+    while (dataset_dir / folder_name).exists():
+        folder_name += "_"
+
+    imod_work_dir = dataset_dir / folder_name
+    imod_work_dir.mkdir()
+    
     work_mrc = imod_work_dir / source_mrc.name
     work_rawtlt = imod_work_dir / source_rawtlt.name
 
@@ -1016,6 +1028,20 @@ def execute_in_imod(dataset_dir, master_name, number_of_cpus=8):
 
     env = os.environ.copy()
     env["IMOD_DIR"] = str(imod_dir)
+
+
+    # Ensure that all IMOD subprocesses use IMOD_PYTHON
+    python_dir = str(imod_python.parent)
+
+    env["PATH"] = python_dir + os.pathsep + env.get("PATH", "")
+
+    # Verify that psutil is available
+    subprocess.run(
+        [str(imod_python), "-c", "import psutil"],
+        env=env,
+        check=True,
+    )
+
 
     command = [
         str(imod_python),
@@ -1291,9 +1317,7 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
     )
     row += 1
 
-    result = {"value": None}
-
-    def run_imod_ali():
+    def run_imod_ali(notify=True):
         try:
             output_folder = json_path.parent
             master_name = variables["master_name"].get().strip()
@@ -1311,21 +1335,25 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
             print("XF:", xf_file)
             print("ALI:", ali_file)
 
-            messagebox.showinfo(
-                "IMOD alignment",
-                f"IMOD alignment completed successfully.\n\n"
-                f"XF: {xf_file}\n"
-                f"ALI: {ali_file}",
-                parent=root,
-            )
+            if notify:
+                messagebox.showinfo(
+                    "IMOD alignment",
+                    f"IMOD alignment completed successfully.\n\n"
+                    f"XF: {xf_file}\n"
+                    f"ALI: {ali_file}",
+                    parent=root,
+                )
+            return xf_file, ali_file
 
         except Exception as exc:
-            messagebox.showerror(
-                "IMOD alignment failed",
-                str(exc),
-                parent=root,
-            )
-
+            if notify:
+                messagebox.showerror(
+                    "IMOD alignment failed",
+                    str(exc),
+                    parent=root,
+                )
+                return None
+            raise
 
 
     def preliminary_search():
@@ -1351,50 +1379,78 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
             messagebox.showerror("Preliminary Ns search failed",str(exc),parent=root)
 
 
+    def processing_parameters(mode="2d"):
+        nx = int(variables["Nx"].get())
+        ny = int(variables["Ny"].get())
+        first_index = int(variables["first_index"].get())
+        index_step = int(variables["index_step"].get())
+        if nx <= 0 or ny <= 0 or index_step <= 0:
+            raise ValueError("Nx, Ny, and scan-index step must be positive integers.")
+
+        indices = [first_index + i * index_step for i in range(len(settings.scan_indices))]
+        edited = replace(
+            settings,
+            folder=json_path.parent,
+            master_name=variables["master_name"].get().strip(),
+            scan_indices=indices,
+            Nx=nx,
+            Ny=ny,
+            defocus_um=float(variables["defocus_um"].get()),
+            convergence_angle_mrad=float(variables["convergence"].get()),
+            step_size_nm=float(variables["step_size"].get()),
+            energy_keV=float(variables["energy"].get()),
+            camera_size=int(variables["camera_size"].get()),
+            old_arina=(variables["arina_type"].get() == "prototype"),
+            left_to_column=bool(variables["left"].get()),
+        )
+        ns_text = variables["Ns"].get().strip()
+        ns = float(ns_text) if ns_text else None
+        upscaling = float(variables["upscaling"].get())
+        margin = float(variables["margin"].get())
+        depth_slices = int(variables["depth_slices"].get())
+
+        if not edited.master_name:
+            raise ValueError("Master name cannot be empty.")
+        if edited.camera_size not in (96, 192):
+            raise ValueError("Camera size must be 96 or 192.")
+        if ns is not None and ns <= 0:
+            raise ValueError("Ns must be positive when specified.")
+        if upscaling <= 0 or not (0 <= margin < 0.5):
+            raise ValueError("Rendered upscaling must be positive; margin must be 0 to <0.5.")
+        if depth_slices <= 0:
+            raise ValueError("Number of depth slices must be positive.")
+
+        return mode, edited, ns, upscaling, bool(variables["ctf"].get()), margin, depth_slices
+
+    def perform_processing(mode="2d"):
+        mode, edited, ns, upscaling, ctf, margin, depth_slices = processing_parameters(mode)
+        print(f"\nStarting {mode.upper()} shadow-montage processing...", flush=True)
+        if mode == "3d":
+            return run_3d(
+                json_path, ns, depth_slices,
+                settings_override=edited,
+                rendered_upscaling=upscaling,
+                apply_ctf_correction=ctf,
+                margin=margin,
+            )
+        return run(
+            json_path, ns,
+            settings_override=edited,
+            rendered_upscaling=upscaling,
+            apply_ctf_correction=ctf,
+            margin=margin,
+        )
+
     def start_processing(mode="2d"):
         try:
-            nx = int(variables["Nx"].get())
-            ny = int(variables["Ny"].get())
-            first_index = int(variables["first_index"].get())
-            index_step = int(variables["index_step"].get())
-            if nx <= 0 or ny <= 0 or index_step <= 0:
-                raise ValueError("Nx, Ny, and scan-index step must be positive integers.")
-            indices = list(range(first_index, len(settings.tilt_angles_deg) * repetition + first_index, index_step))
-            # Preserve the number and order of tilt views while allowing first index/step edits.
-            indices = [first_index + i * index_step for i in range(len(settings.scan_indices))]
-            edited = replace(
-                settings,
-                folder=json_path.parent,
-                master_name=variables["master_name"].get().strip(),
-                scan_indices=indices,
-                Nx=nx,
-                Ny=ny,
-                defocus_um=float(variables["defocus_um"].get()),
-                convergence_angle_mrad=float(variables["convergence"].get()),
-                step_size_nm=float(variables["step_size"].get()),
-                energy_keV=float(variables["energy"].get()),
-                camera_size=int(variables["camera_size"].get()),
-                old_arina=(variables["arina_type"].get() == "prototype"),
-                left_to_column=bool(variables["left"].get()),
+            perform_processing(mode)
+            messagebox.showinfo(
+                f"Run {mode.upper()}",
+                f"{mode.upper()} processing completed successfully.",
+                parent=root,
             )
-            ns_text = variables["Ns"].get().strip()
-            ns = float(ns_text) if ns_text else None
-            upscaling = float(variables["upscaling"].get())
-            margin = float(variables["margin"].get())
-            if not edited.master_name:
-                raise ValueError("Master name cannot be empty.")
-            if edited.camera_size not in (96, 192):
-                raise ValueError("Camera size must be 96 or 192.")
-            if ns is not None and ns <= 0:
-                raise ValueError("Ns must be positive when specified.")
-            if upscaling <= 0 or not (0 <= margin < 0.5):
-                raise ValueError("Rendered upscaling must be positive; margin must be 0 to <0.5.")
-            depth_slices=int(variables["depth_slices"].get())
-            if depth_slices<=0: raise ValueError("Number of depth slices must be positive.")
-            result["value"]=(mode,json_path,edited,ns,upscaling,bool(variables["ctf"].get()),margin,depth_slices)
-            root.destroy()
         except Exception as exc:
-            messagebox.showerror("Invalid parameter", str(exc), parent=root)
+            messagebox.showerror("Processing failed", str(exc), parent=root)
 
     # Preliminary search and tilt-view index on a separate shared line.
     preliminary_line = ttk.Frame(outer)
@@ -1410,7 +1466,8 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
     # Scan S controls on the last line before Run 3D / Run 2D.
     row += 1
     scan_s_line = ttk.Frame(outer)
-    scan_s_line.grid(row=row, column=0, columnspan=2, sticky="w", pady=(8, 3))
+    scan_s_line.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(8, 3))
+    scan_s_line.columnconfigure(2, weight=1)
     for column, (label, key, value) in enumerate((
         ("First S", "first_index", settings.scan_indices[0]),
         ("Steps in S", "index_step", repetition),
@@ -1421,8 +1478,15 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
         var = tk.StringVar(value=str(value))
         variables[key] = var
         ttk.Entry(group, textvariable=var, width=3).pack(side="left")
-    row += 1
 
+    one_click_button = ttk.Button(
+        scan_s_line,
+        text="one-click",
+        command=lambda: start_one_click(),
+    )
+    one_click_button.grid(row=0, column=2, sticky="e", padx=(12, 0))
+
+    row += 1
     # Main processing buttons.
     buttons = ttk.Frame(outer)
     buttons.grid(row=row, column=0, columnspan=2, sticky="e", pady=(12, 0))
@@ -1471,7 +1535,7 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
         ttk.Entry(group, textvariable=var, width=3).pack(side="left")
     row += 1
 
-    def run_backprojection():
+    def run_backprojection(notify=True):
         try:
             master_name = variables["master_name"].get().strip()
             xf_text = variables["imod_xf"].get().strip()
@@ -1514,17 +1578,22 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
             print("Running 3D backprojection:")
             print(" ".join(command), flush=True)
 
-            completed = subprocess.run(
+            subprocess.run(
               command,
               cwd=json_path.parent,
-              check=False
+              check=True
             )
-            messagebox.showinfo(
-                "3D Backprojection", "3D backprojection completed.",parent=root)
+            if notify:
+                messagebox.showinfo(
+                    "3D Backprojection", "3D backprojection completed.", parent=root)
+            return True
         except Exception as exc:
-            messagebox.showerror("3D Backprojection failed", str(exc),parent=root)
+            if notify:
+                messagebox.showerror("3D Backprojection failed", str(exc), parent=root)
+                return False
+            raise
 
-    def run_deconvolution():
+    def run_deconvolution(notify=True):
         try:
             master_name = variables["master_name"].get().strip()
             convergence_mrad = float(variables["convergence"].get())
@@ -1769,6 +1838,54 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
                 parent=root,
             )
 
+    one_click_state = {"running": False, "stage": 0}
+    one_click_stages = (
+        ("Run 3D", lambda: perform_processing("3d")),
+        ("IMOD ali", lambda: run_imod_ali(notify=False)),
+        ("3D backprojection", lambda: run_backprojection(notify=False)),
+        ("3D deconvolution", lambda: run_deconvolution(notify=False)),
+    )
+
+    def start_one_click():
+        if one_click_state["running"]:
+            print("One-click workflow is already running.", flush=True)
+            return
+        try:
+            # Validate all Run 3D parameters before starting the sequence.
+            processing_parameters("3d")
+        except Exception as exc:
+            print(f"One-click validation failed: {exc}", flush=True)
+            return
+
+        one_click_state["running"] = True
+        one_click_state["stage"] = 0
+        one_click_button.configure(state="disabled", text="Run 3D...")
+        root.after(10, run_next_one_click_stage)
+
+    def run_next_one_click_stage():
+        stage_index = one_click_state["stage"]
+        if stage_index >= len(one_click_stages):
+            one_click_state["running"] = False
+            one_click_button.configure(state="normal", text="one-click")
+            print("One-click workflow completed successfully.", flush=True)
+            return
+
+        stage_name, stage_function = one_click_stages[stage_index]
+        one_click_button.configure(text=f"{stage_name}...")
+        root.update_idletasks()
+        print(f"\nOne-click stage {stage_index + 1}/{len(one_click_stages)}: {stage_name}", flush=True)
+
+        try:
+            stage_function()
+        except Exception as exc:
+            one_click_state["running"] = False
+            one_click_button.configure(state="normal", text="one-click")
+            print(f"One-click stopped during {stage_name}: {exc}", flush=True)
+            return
+
+        one_click_state["stage"] += 1
+        root.after(10, run_next_one_click_stage)
+
     recon_buttons = ttk.Frame(outer)
     recon_buttons.grid(row=row, column=0, columnspan=2, sticky="e", pady=(10, 0))
     ttk.Button(recon_buttons,  text="3D Backprojection", command=run_backprojection).pack(side="right")
@@ -1794,7 +1911,7 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
 
     root.protocol("WM_DELETE_WINDOW", root.destroy)
     root.mainloop()
-    return result["value"]
+    return None
 
 
 def main() -> None:
@@ -1807,14 +1924,8 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.gui or args.json_file is None:
-        selected_run = launch_gui()
-        if selected_run is None:
-            print("Cancelled.")
-            return
-        mode,json_path,settings,ns,upscaling,ctf,margin,depth_slices=selected_run
-        print(f"\nGUI closed. Starting {mode.upper()} shadow-montage processing...",flush=True)
-        if mode=="3d": run_3d(json_path,ns,depth_slices,settings_override=settings,rendered_upscaling=upscaling,apply_ctf_correction=ctf,margin=margin)
-        else: run(json_path,ns,settings_override=settings,rendered_upscaling=upscaling,apply_ctf_correction=ctf,margin=margin)
+        launch_gui()
+        return
     else:
         run(args.json_file.resolve(), args.Ns)
 
