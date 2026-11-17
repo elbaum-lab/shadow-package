@@ -954,7 +954,7 @@ def execute_in_imod(dataset_dir, master_name, number_of_cpus=8):
     # ----------------------------------------------------------
 
     # Extract suffix after the last underscore
-    suffix = master_name.rsplit("_", 1)[-1]
+    suffix = master_name.rsplit("_", 3)[-3]
 
     # Initial folder name
     base_folder_name = f"IMOD_{suffix}"
@@ -1237,7 +1237,7 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
         return None
 
     root.deiconify()
-    root.title("Shadow Montage Parameters")
+    root.title("Shadow Montage (by Elbaum lab, Weizmann Institute)")
     root.resizable(False, True)
 
     outer = ttk.Frame(root, padding=12)
@@ -1818,13 +1818,17 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
             # Both commands completed successfully.
             # --------------------------------------------------------------
 
-            messagebox.showinfo(
-                "3D deconvolution",
-                "3D deconvolution completed successfully.",
-                parent=root,
-            )
+            if notify:
+                messagebox.showinfo(
+                    "3D deconvolution",
+                    "3D deconvolution completed successfully.",
+                    parent=root,
+                )
+            return True
 
         except subprocess.CalledProcessError as exc:
+            if not notify:
+                raise
             messagebox.showerror(
                 "3D deconvolution failed",
                 f"Command failed with exit code {exc.returncode}.",
@@ -1832,11 +1836,42 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
             )
 
         except Exception as exc:
+            if not notify:
+                raise
             messagebox.showerror(
                 "3D deconvolution failed",
                 str(exc),
                 parent=root,
             )
+
+    def cleanup_one_click_files():
+        """Remove only specified temporary files after successful one-click stages."""
+        data_dir = json_path.parent
+        master_name = variables["master_name"].get().strip()
+        if not master_name or Path(master_name).name != master_name:
+            raise ValueError("Invalid master name for cleanup.")
+
+        removed = 0
+        # Match only numeric scan indices, not other similarly named files.
+        pattern = re.compile(r"^" + re.escape(master_name) + r"_s[0-9]+_3dmontage\.mrc$")
+        for path in data_dir.iterdir():
+            if path.is_file() and not path.is_symlink() and pattern.fullmatch(path.name):
+                path.unlink()
+                print("Removed temporary montage:", path, flush=True)
+                removed += 1
+
+        # IMOD alignment uses the suffix of the Tiltview_reorder input name.
+        imod_master_name = f"{master_name}"
+        suffix = imod_master_name.rsplit("_", 1)[-1]
+        imod_folder = data_dir / f"IMOD_{suffix}"
+        if imod_folder.is_dir() and not imod_folder.is_symlink():
+            for path in imod_folder.iterdir():
+                if path.is_file() and not path.is_symlink() and path.stat().st_size > 1024 * 1024:
+                    path.unlink()
+                    print("Removed large IMOD temporary file:", path, flush=True)
+                    removed += 1
+        print(f"Cleanup finished: {removed} file(s) removed.", flush=True)
+        return removed
 
     one_click_state = {"running": False, "stage": 0}
     one_click_stages = (
@@ -1844,6 +1879,7 @@ def launch_gui() -> tuple[Path, Settings, float | None, float, bool, float] | No
         ("IMOD ali", lambda: run_imod_ali(notify=False)),
         ("3D backprojection", lambda: run_backprojection(notify=False)),
         ("3D deconvolution", lambda: run_deconvolution(notify=False)),
+        ("Cleanup", cleanup_one_click_files),
     )
 
     def start_one_click():
